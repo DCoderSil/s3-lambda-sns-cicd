@@ -2,45 +2,67 @@ from datetime import date
 import json
 import boto3
 import pandas as pd
+import os
 
+# Initialize clients
 s3_client = boto3.client('s3')
 sns_client = boto3.client('sns')
+
+# Constants
 sns_arn = 'arn:aws:sns:us-west-2:767398004946:s3-lambda-sns-cicd'
-s3_target_arn="arn:aws:s3:::doordash-target-zn-dsil"
-s3_landing_arn="arn:aws:s3:::doordash-landing-zn-dsil"
+s3_target_bucket = "doordash-target-zn-dsil"
+s3_landing_bucket = "doordash-landing-zn-dsil"
 
 def lambda_handler(event, context):
-    # TODO implement
-    print(event)
+    print("Event received:", event)
+
     try:
+        # Extract bucket name and object key
         bucket_name = event["Records"][0]["s3"]["bucket"]["name"]
         s3_file_key = event["Records"][0]["s3"]["object"]["key"]
-        print(bucket_name)
-        print(s3_file_key)
-        resp = s3_client.get_object(Bucket=bucket_name, Key=s3_file_key)
-        print(resp['Body'])
-        json_data=json.loads(resp)
-        s3_data = pd.read_json(resp['Body'].read().split('\r\n'))
-        df= pd.DataFrame(columns=['id','status','amount','date'])
-        for line in s3_data:
-            py_dict = json.loads(line)
-            if py_dict['status'] == 'delievered':
-                df.loc=[py_dict['id']] = py_dict
-        df.to_csv('/tmp/test.csv',sep=',')
-        print ('test.csv file ceated')
-        try:
-            date_var=str(date.today())
-            file_name='processed_data/{}_processed_data.csv'.format(date_var)
-        except:
-            file_name='processed_data/processed_data.csv'
-        lambda_path= 'tmp/test.csv'
-        s3=boto3.resource('s3')
-        bucket = s3.Bucket(doordash-landing-zn-dsil)
-        bucket.upload_file(lambda_path,file_name)
-        message = "Input S3 File {} has been processed succesfuly !!".format("s3://"+bucket_name+"/"+s3_file_key)
-        respone = sns_client.publish(Subject="FAILED - Daily Data Processing", TargetArn=os.getenv(sns_arn),
-                                      Message="File {} has been formatted and filtered. Its been stored in {} as format {}".format(s3_file_key,bucket_name,file_name))
+        print("Bucket:", bucket_name)
+        print("File Key:", s3_file_key)
+
+        # Get the S3 object
+        response = s3_client.get_object(Bucket=bucket_name, Key=s3_file_key)
+        file_content = response['Body'].read().decode('utf-8')
+        print("S3 file content:", file_content)
+
+        # Load JSON data
+        json_data = [json.loads(line) for line in file_content.splitlines() if line.strip()]
+        print("Parsed JSON data:", json_data)
+
+        # Create DataFrame and process data
+        df = pd.DataFrame(json_data)
+        filtered_df = df[df['status'] == 'delivered']
+        print("Filtered DataFrame:", filtered_df)
+
+        # Save filtered data to a CSV file
+        output_file_path = '/tmp/test.csv'
+        filtered_df.to_csv(output_file_path, index=False)
+        print("CSV file created:", output_file_path)
+
+        # Upload processed file to S3
+        date_var = str(date.today())
+        s3_target_key = f'processed_data/{date_var}_processed_data.csv'
+        s3_client.upload_file(output_file_path, s3_target_bucket, s3_target_key)
+        print("Processed file uploaded to S3:", s3_target_key)
+
+        # Send SNS notification
+        message = f"Input S3 File s3://{bucket_name}/{s3_file_key} has been processed successfully!"
+        sns_client.publish(
+            Subject="SUCCESS - Daily Data Processing",
+            TargetArn=sns_arn,
+            Message=message
+        )
+        print("SNS notification sent:", message)
+
     except Exception as err:
-        print(err)
-        message = "Input S3 File {} processing is Failed !!".format("s3://"+bucket_name+"/"+s3_file_key)
-        sns_client.publish(Subject="FAILED - Daily Data Processing", TargetArn=sns_arn, Message=message, MessageStructure='text')
+        print("Error occurred:", err)
+        # Send failure notification
+        failure_message = f"Input S3 File s3://{bucket_name}/{s3_file_key} processing failed. Error: {err}"
+        sns_client.publish(
+            Subject="FAILED - Daily Data Processing",
+            TargetArn=sns_arn,
+            Message=failure_message
+        )
