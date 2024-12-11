@@ -1,4 +1,4 @@
-requirements
+requests
 boto3
 pandas
 json
