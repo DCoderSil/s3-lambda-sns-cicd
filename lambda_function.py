@@ -26,22 +26,23 @@ def lambda_handler(event, context):
         file_content = response['Body'].read().decode('utf-8')
         print("S3 file content:", file_content)
 
-        # Load JSON data with validation
+        # Parse and validate JSON data
         json_data = []
         for line in file_content.splitlines():
             if line.strip():  # Skip empty lines
                 try:
                     record = json.loads(line)
-                    json_data.append(record)
+                    if 'status' in record:  # Only include records with 'status'
+                        json_data.append(record)
                 except json.JSONDecodeError as e:
                     print(f"Invalid JSON line skipped: {line}, Error: {e}")
 
-        print("Parsed JSON data:", json_data)
+        if not json_data:
+            raise ValueError("No valid records with 'status' key found in the file!")
 
-        # Create DataFrame and process data
+        # Create DataFrame and filter data
         df = pd.DataFrame(json_data)
-        if 'status' not in df.columns:
-            raise ValueError("The 'status' column is missing in the data!")
+        print("Loaded DataFrame:", df)
 
         filtered_df = df[df['status'] == 'delivered']
         print("Filtered DataFrame:", filtered_df)
