@@ -1,7 +1,8 @@
-from datetime import date
 import json
 import boto3
+import re
 import pandas as pd
+from datetime import date
 
 # Initialize clients
 s3_client = boto3.client('s3')
@@ -26,16 +27,18 @@ def lambda_handler(event, context):
         file_content = response['Body'].read().decode('utf-8')
         print("S3 file content:", file_content)
 
-        # Parse and validate JSON data
+        # Use regex to extract all JSON objects from the file content
+        json_objects = re.findall(r'\{.*?\}', file_content)
+
+        # Parse each JSON object and create a list
         json_data = []
-        for line in file_content.splitlines():
-            if line.strip():  # Skip empty lines
-                try:
-                    record = json.loads(line)
-                    if 'status' in record:  # Only include records with 'status'
-                        json_data.append(record)
-                except json.JSONDecodeError as e:
-                    print(f"Invalid JSON line skipped: {line}, Error: {e}")
+        for json_object in json_objects:
+            try:
+                record = json.loads(json_object)
+                if 'status' in record:  # Only include records with 'status'
+                    json_data.append(record)
+            except json.JSONDecodeError as e:
+                print(f"Invalid JSON object skipped: {json_object}, Error: {e}")
 
         if not json_data:
             raise ValueError("No valid records with 'status' key found in the file!")
