@@ -2,7 +2,6 @@ from datetime import date
 import json
 import boto3
 import pandas as pd
-import os
 
 # Initialize clients
 s3_client = boto3.client('s3')
@@ -11,7 +10,6 @@ sns_client = boto3.client('sns')
 # Constants
 sns_arn = 'arn:aws:sns:us-west-2:767398004946:s3-lambda-sns-cicd'
 s3_target_bucket = "doordash-target-zn-dsil"
-s3_landing_bucket = "doordash-landing-zn-dsil"
 
 def lambda_handler(event, context):
     print("Event received:", event)
@@ -28,12 +26,23 @@ def lambda_handler(event, context):
         file_content = response['Body'].read().decode('utf-8')
         print("S3 file content:", file_content)
 
-        # Load JSON data
-        json_data = [json.loads(line) for line in file_content.splitlines() if line.strip()]
+        # Load JSON data with validation
+        json_data = []
+        for line in file_content.splitlines():
+            if line.strip():  # Skip empty lines
+                try:
+                    record = json.loads(line)
+                    json_data.append(record)
+                except json.JSONDecodeError as e:
+                    print(f"Invalid JSON line skipped: {line}, Error: {e}")
+
         print("Parsed JSON data:", json_data)
 
         # Create DataFrame and process data
         df = pd.DataFrame(json_data)
+        if 'status' not in df.columns:
+            raise ValueError("The 'status' column is missing in the data!")
+
         filtered_df = df[df['status'] == 'delivered']
         print("Filtered DataFrame:", filtered_df)
 
